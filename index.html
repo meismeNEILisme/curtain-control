@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Curtain Control System</title>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-database.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .dashboard {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-card {
+            background-color: #f0f8ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .control-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 25px 0;
+        }
+        .control-btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        #btnOpen {
+            background-color: #2196F3;
+        }
+        #btnClose {
+            background-color: #f44336;
+        }
+        #btnStop {
+            background-color: #ff9800;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-open { background-color: #4CAF50; }
+        .status-closed { background-color: #f44336; }
+        .status-moving { background-color: #FFC107; }
+        .position-display {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            background-color: #e8f5e9;
+            font-weight: bold;
+        }
+        .settings-card {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>Smart Curtain Control</h1>
+        
+        <!-- Status Card -->
+        <div class="status-card">
+            <h3>Current Status</h3>
+            <div>
+                <p>Temperature: <span id="currentTemp">--</span>°C</p>
+                <div class="position-display">
+                    <span class="status-indicator" id="positionIndicator"></span>
+                    <span id="positionText">Curtain is: --</span>
+                </div>
+            </div>
+            <p>Mode: <span id="currentMode">--</span></p>
+            <p>Last Update: <span id="lastUpdated">--</span></p>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="control-buttons">
+            <button class="control-btn" id="btnOpen" onclick="sendCommand('open')">OPEN</button>
+            <button class="control-btn" id="btnStop" onclick="sendCommand('stop')">STOP</button>
+            <button class="control-btn" id="btnClose" onclick="sendCommand('close')">CLOSE</button>
+        </div>
+
+        <!-- Mode Selection -->
+        <div class="settings-card">
+            <h3>Control Mode</h3>
+            <select id="modeSelect" onchange="changeMode()">
+                <option value="auto">Automatic Mode</option>
+                <option value="manual">Manual Mode</option>
+            </select>
+        </div>
+
+        <!-- Temperature Settings -->
+        <div class="settings-card">
+            <h3>Temperature Settings</h3>
+            <div>
+                <label>Open above: <input type="number" id="openTemp" min="0" max="50">°C</label>
+                <button onclick="updateTempSettings()">Set</button>
+            </div>
+            <div>
+                <label>Close below: <input type="number" id="closeTemp" min="0" max="50">°C</label>
+            </div>
+        </div>
+
+        <!-- Schedule Settings -->
+        <div class="settings-card">
+            <h3>Schedule Settings</h3>
+            <div>
+                <label>Open at: <input type="time" id="openTime"></label>
+                <button onclick="updateSchedule()">Set</button>
+            </div>
+            <div>
+                <label>Close at: <input type="time" id="closeTime"></label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCaxyppC3XXPzE3DbjL3y4H-aOIS7k3bNY",
+            authDomain: "curtain-control-system.firebaseapp.com",
+            databaseURL: "https://curtain-control-system-default-rtdb.firebaseio.com",
+            projectId: "curtain-control-system",
+            storageBucket: "curtain-control-system.firebasestorage.app",
+            messagingSenderId: "66314395322",
+            appId: "1:66314395322:web:b7783ea4fce2a57337ac83",
+            measurementId: "G-NDX05DXBFM"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // DOM Elements
+        const currentTemp = document.getElementById('currentTemp');
+        const positionIndicator = document.getElementById('positionIndicator');
+        const positionText = document.getElementById('positionText');
+        const currentMode = document.getElementById('currentMode');
+        const lastUpdated = document.getElementById('lastUpdated');
+        const modeSelect = document.getElementById('modeSelect');
+
+        // Real-time Database Listeners
+        function setupListeners() {
+            // Environment Data
+            database.ref('environment/temperature').on('value', (snapshot) => {
+                const temp = snapshot.val();
+                currentTemp.textContent = temp ? temp.toFixed(1) : '--';
+                lastUpdated.textContent = new Date().toLocaleTimeString();
+            });
+
+            // Curtain Status
+            database.ref('curtainControl/status').on('value', (snapshot) => {
+                const status = snapshot.val();
+                updatePositionDisplay(status);
+            });
+
+            // Control Mode
+            database.ref('curtainControl/mode').on('value', (snapshot) => {
+                const mode = snapshot.val();
+                currentMode.textContent = mode;
+                modeSelect.value = mode;
+            });
+
+            // Load initial settings
+            database.ref('curtainControl/temperatureSettings').once('value', (snapshot) => {
+                const settings = snapshot.val();
+                document.getElementById('openTemp').value = settings?.openAbove || 25;
+                document.getElementById('closeTemp').value = settings?.closeBelow || 20;
+            });
+
+            database.ref('curtainControl/schedule').once('value', (snapshot) => {
+                const schedule = snapshot.val();
+                document.getElementById('openTime').value = schedule?.openTime || "07:00";
+                document.getElementById('closeTime').value = schedule?.closeTime || "19:00";
+            });
+        }
+
+        // Update position display
+        function updatePositionDisplay(status) {
+            positionIndicator.className = 'status-indicator';
+            
+            if (status === 'open') {
+                positionIndicator.classList.add('status-open');
+                positionText.textContent = 'Curtain is: OPEN';
+            } else if (status === 'close') {
+                positionIndicator.classList.add('status-closed');
+                positionText.textContent = 'Curtain is: CLOSED';
+            } else if (status === 'opening') {
+                positionIndicator.classList.add('status-moving');
+                positionText.textContent = 'Curtain is: OPENING...';
+            } else if (status === 'closing') {
+                positionIndicator.classList.add('status-moving');
+                positionText.textContent = 'Curtain is: CLOSING...';
+            } else {
+                positionText.textContent = 'Curtain is: --';
+            }
+            
+            lastUpdated.textContent = new Date().toLocaleTimeString();
+        }
+
+        // Control Functions
+        function sendCommand(command) {
+            database.ref('curtainControl/command').set(command);
+        }
+
+        function changeMode() {
+            const mode = modeSelect.value;
+            database.ref('curtainControl/mode').set(mode);
+        }
+
+        function updateTempSettings() {
+            database.ref('curtainControl/temperatureSettings').update({
+                openAbove: parseFloat(document.getElementById('openTemp').value),
+                closeBelow: parseFloat(document.getElementById('closeTemp').value)
+            });
+        }
+
+        function updateSchedule() {
+            database.ref('curtainControl/schedule').update({
+                openTime: document.getElementById('openTime').value,
+                closeTime: document.getElementById('closeTime').value
+            });
+        }
+
+        // Initialize the app
+        setupListeners();
+    </script>
+</body>
+</html>
